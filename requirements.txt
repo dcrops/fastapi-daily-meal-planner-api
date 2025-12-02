@@ -1,0 +1,9 @@
+fastapi[standard]
+uvicorn
+pydantic
+openai
+pillow
+aiofiles
+python-dotenv
+httpx
+requests
