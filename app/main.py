@@ -4,7 +4,7 @@ from typing import List
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 from .services import (
     create_meals,
@@ -55,8 +55,8 @@ class MealPlanRequest(BaseModel):
 class Meal(BaseModel):
     title: str
     text: str
-    image_url: str
-    audio_url: str
+    image_url: HttpUrl
+    audio_url: HttpUrl
 
 
 class MealPlanResponse(BaseModel):
