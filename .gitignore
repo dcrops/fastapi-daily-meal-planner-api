@@ -1,0 +1,13 @@
+# Ignore generated images
+app/static/images/*.png
+
+# Ignore generated audio
+app/static/audio/*.mp3
+
+# Ignore generated meal recipe text
+app/static/recipes/*.txt
+
+# Keep folder structure
+!app/static/images/.gitkeep
+!app/static/audio/.gitkeep
+!app/static/recipes/.gitkeep

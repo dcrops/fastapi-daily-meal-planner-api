@@ -2,9 +2,17 @@
 from pathlib import Path
 from typing import List
 
+from markdown import markdown
+
+import os
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, HttpUrl
+
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
+
 
 from .services import (
     create_meals,
@@ -13,6 +21,8 @@ from .services import (
     create_and_save_image,
     speak,
 )
+
+templates = Jinja2Templates(directory="app/templates")
 
 # ---------------------------------------------------------
 # Paths & FastAPI app
@@ -57,6 +67,7 @@ class Meal(BaseModel):
     text: str
     image_url: HttpUrl
     audio_url: HttpUrl
+    html_url: HttpUrl
 
 
 class MealPlanResponse(BaseModel):
@@ -91,6 +102,43 @@ async def root():
     return {"message": "AI Daily Meal Planner API. POST to /meal_plan."}
 
 
+@app.get("/meal_plan_html/{meal_name}", response_class=HTMLResponse)
+async def get_meal_html(meal_name: str, request: Request):
+    valid = ["breakfast", "lunch", "dinner"]
+    if meal_name.lower() not in valid:
+        raise HTTPException(400, "Meal must be breakfast, lunch, or dinner")
+
+    meal_name = meal_name.lower()
+
+    # read markdown-style text
+    filename = f"{meal_name}.txt"
+    filepath = os.path.join("app", "static", "recipes", filename)
+
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            raw_text = f.read()
+    except FileNotFoundError:
+        raise HTTPException(404, "Meal HTML not generated yet")
+
+    html_body = markdown(raw_text)
+
+    # build full URLs for image + audio
+    base = str(request.base_url).rstrip("/")
+    image_url = f"{base}/static/images/{meal_name}.png"
+    audio_url = f"{base}/static/audio/{meal_name}.mp3"
+
+    return templates.TemplateResponse(
+        "meal_template.html",
+        {
+            "request": request,
+            "title": meal_name.capitalize(),
+            "body": html_body,
+            "image_url": image_url,
+            "audio_url": audio_url,
+        },
+    )
+
+
 @app.post("/meal_plan", response_model=MealPlanResponse)
 async def generate_meal_plan(payload: MealPlanRequest, request: Request):
     """
@@ -108,6 +156,10 @@ async def generate_meal_plan(payload: MealPlanRequest, request: Request):
 
     if not plan_text or not plan_text.strip():
         raise HTTPException(status_code=500, detail="Meal plan generation failed.")
+
+    html_text_dir = os.path.join(STATIC_DIR, "recipes")
+    os.makedirs(html_text_dir, exist_ok=True)
+
 
     # 2. Split into 3 meal sections and extract titles from last line
     meal_sections = split_meals(plan_text)      # text blocks separated by 50 dashes
@@ -133,15 +185,30 @@ async def generate_meal_plan(payload: MealPlanRequest, request: Request):
 
     meals: List[Meal] = []
 
-    # 3. For each meal: generate image + audio and make URLs
-    for idx, (section_text, title) in enumerate(zip(meal_sections, titles), start=1):
-        # Image: uses your DALL-E logic from services.py
-        image_path = create_and_save_image(title, extra="white background")
+    meal_names = ["breakfast", "lunch", "dinner"]
+    meals: list[Meal] = []
+
+    for idx, (section_text, title) in enumerate(zip(meal_sections, titles), start=0):
+        meal_name = meal_names[idx]
+
+        # save text for HTML
+        text_path = os.path.join(html_text_dir, f"{meal_name}.txt")
+        with open(text_path, "w", encoding="utf-8") as f:
+            f.write(section_text)
+
+        # image: now saved as breakfast.png / lunch.png / dinner.png
+        image_path = create_and_save_image(
+            title,
+            extra="white background",
+            filename_prefix=meal_name,
+        )
         image_url = path_to_url(image_path, request)
 
-        # Audio: speak() also does the GPT “make it more readable aloud” step
-        audio_path = speak(section_text, filename_prefix=f"meal_{idx}")
+        # audio: already using meal_name
+        audio_path = speak(section_text, filename_prefix=meal_name)
         audio_url = path_to_url(audio_path, request)
+
+        html_url = f"{request.base_url}meal_plan_html/{meal_name}"
 
         meals.append(
             Meal(
@@ -149,8 +216,10 @@ async def generate_meal_plan(payload: MealPlanRequest, request: Request):
                 text=section_text,
                 image_url=image_url,
                 audio_url=audio_url,
+                html_url=html_url,
             )
         )
+
 
     # 4. Return full raw text + structured meals
     return MealPlanResponse(

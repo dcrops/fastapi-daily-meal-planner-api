@@ -137,22 +137,20 @@ def extract_titles(plan_text: str) -> List[str]:
 # 2. Image generation (your create_and_save_image)
 # -------------------------------------------------------------------
 def create_and_save_image(
-    title: str,
-    model: str = "dall-e-3",
-    size: str = "1024x1024",
-    quality: str = "standard",
-    extra: str = "",
-) -> str:
-    """
-    Generate an image for a meal title using DALL-E, save it under
-    app/static/images/, and return the full filesystem path.
-    """
-    image_prompt = (
-        f"{title}, hd quality, "
-        "Top-down view of the entire dish, fully visible, centered in the image, "
-        "on a plain white background, no cropping., "
-        f"{extra}"
-    )
+    title,
+    model="dall-e-3",
+    size="1024x1024",
+    quality="standard",
+    extra="",
+    filename_prefix: str | None = None,
+):
+    import requests
+    import shutil
+    from openai import OpenAI
+
+    client = OpenAI()
+
+    image_prompt = f"{title}, hd quality, Top-down view of the entire dish, fully visible, centered in the image, on a plain white background, no cropping., {extra}"
 
     response = client.images.generate(
         model=model,
@@ -164,16 +162,25 @@ def create_and_save_image(
 
     image_url = response.data[0].url
 
-    # Simple filename based on title
-    safe_title = safe_filename(title)
-    image_path = IMAGES_DIR / f"{safe_title}.png"
     image_resource = requests.get(image_url, stream=True)
+
+    # use meal name if provided, else slugified title
+    from .services import safe_filename  # or wherever safe_filename is
+
+    base_name = filename_prefix or title
+    safe_name = safe_filename(base_name)
+    image_filename = f"{safe_name}.png"
+
+    images_dir = IMAGES_DIR  # whatever you already use
+    image_path = images_dir / image_filename
+
     if image_resource.status_code == 200:
         with open(image_path, "wb") as f:
             shutil.copyfileobj(image_resource.raw, f)
         return str(image_path)
     else:
-        raise RuntimeError(f"Error downloading image from {image_url}")
+        print("Error accessing the image!")
+        return None
 
 
 # -------------------------------------------------------------------
